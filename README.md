@@ -1,0 +1,1 @@
+# mahjong_club_competitive_data
