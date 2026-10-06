@@ -16,4 +16,4 @@ WITH player_stats AS(
 )
 SELECT player_name,total_pts, match_played, average_points_earned, total_pts +1000 as rating, rank() OVER (ORDER BY total_pts DESC)
 FROM player_stats
-ORDER BY total_pts;
+ORDER BY total_pts;git add create_tables.sql seed_data.sql create_views.sql

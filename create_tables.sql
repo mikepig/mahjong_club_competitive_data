@@ -1,11 +1,11 @@
+DROP VIEW IF EXISTS leaderboard;
+DROP VIEW IF EXISTS match_scores;
 DROP TABLE IF EXISTS "Match_Results";
 DROP TABLE IF EXISTS "Matches";
 DROP TABLE IF EXISTS "Players";
 DROP TABLE IF EXISTS match_results;
 DROP TABLE IF EXISTS matches;
 DROP TABLE IF EXISTS players;
-DROP VIEW IF EXISTS leaderboard;
-DROP VIEW IF EXISTS match_scores;
 
 
 CREATE TABLE players (
