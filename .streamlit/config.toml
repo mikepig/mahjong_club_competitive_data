@@ -1,0 +1,6 @@
+[theme]
+base = "light"
+backgroundColor = "#e8f8d8"           # light mint green (main page)
+secondaryBackgroundColor = "#f6ecdc"  # warm cream (inputs, table headers, sidebar)
+primaryColor = "#cf7f62"              # soft terracotta (tags, tabs, buttons, progress bars)
+textColor = "#1e2b1e"                 # near-black green for readability
