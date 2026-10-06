@@ -26,10 +26,18 @@ Run in the Supabase SQL Editor, in this order:
 | `check_functions.sql` | Trigger: 4 players and a 100,000 total per game, checked at commit |
 | `security.sql` | Row Level Security: public can read, nobody can write through the API |
 | `readonly_role.sql` | `club_reader` read-only login (role part once; policy part after every rebuild) |
+| `insert_tables.sql` | `record_game()` and `add_player()` functions, plus the `club_writer` login that can only call them |
 | `seed_data.sql` | The first two games from the original spreadsheet |
 | `create_views.sql` | `match_scores` (placement, pts per game) and `leaderboard` |
 
-Enter a game in one transaction so the trigger sees all 4 rows together:
+The easiest way to enter a game is the dashboard's **Enter a game** tab. From SQL, call the function:
+
+```sql
+SELECT record_game('2026-10-08', 1, ARRAY['Mike','Alvin','Josh','Grant'], ARRAY[40000,30000,20000,10000]);
+SELECT add_player('Bob');
+```
+
+Or insert by hand in one transaction so the trigger sees all 4 rows together:
 
 ```sql
 BEGIN;
@@ -73,7 +81,10 @@ df = pd.read_sql("SELECT * FROM leaderboard ORDER BY rank", get_engine())
 .venv/bin/streamlit run app.py
 ```
 
-Tabs: leaderboard, player profile (rating over time, placement counts), game log.
+Tabs: leaderboard, player profile (rating over time, placement counts), game log, and **Enter a game**.
+
+The entry tab is unlocked with `admin_password` and saves through `[connections.writer]` (the `club_writer` login);
+both go in the secrets (see `.streamlit/secrets.toml.example`). Without them the tab just says entry isn't set up.
 Data is cached for 60 seconds; the **Refresh data** button reloads immediately.
 
 ### Deploying for the club (Streamlit Community Cloud)
