@@ -9,6 +9,7 @@ using the separate `club_writer` login (it can call those two functions and noth
 
 import hmac
 from datetime import date
+from functools import partial
 
 import altair as alt
 import pandas as pd
@@ -94,6 +95,20 @@ def refresh_data() -> None:
 
 # ---------------------------------------------------------------- tabs
 
+TABS = ["Leaderboard", "Player profile", "Game log", "Enter a game"]
+
+
+def open_profile(table_key: str, names: list[str]) -> None:
+    """Click on any cell of a player's row -> switch to the Player profile tab for that player."""
+    cells = st.session_state[table_key].selection.cells
+    if not cells:
+        return
+    row, _column = cells[0]
+    st.session_state.profile_player = names[row]
+    st.session_state.tab = "Player profile"
+    st.session_state[table_key] = {"selection": {"rows": [], "columns": [], "cells": []}}  # so the same click works again
+
+
 def render_leaderboard(leaderboard: pd.DataFrame, scores: pd.DataFrame) -> None:
     board = leaderboard.merge(placement_stats(scores), on="player_name", how="left")
     st.dataframe(
@@ -103,6 +118,9 @@ def render_leaderboard(leaderboard: pd.DataFrame, scores: pd.DataFrame) -> None:
         ]],
         hide_index=True,
         use_container_width=True,
+        key="board",
+        on_select=partial(open_profile, "board", board["player_name"].tolist()),
+        selection_mode="single-cell",
         column_config={
             "rank": st.column_config.NumberColumn("Rank", format="%d"),
             "player_name": "Player",
@@ -115,11 +133,14 @@ def render_leaderboard(leaderboard: pd.DataFrame, scores: pd.DataFrame) -> None:
             "average_points_earned": st.column_config.NumberColumn("Avg final score", format="%d"),
         },
     )
-    st.caption(f"Rating = {STARTING_RATING} + total pts. Updates automatically when scores change.")
+    st.caption(
+        f"Click a player to open their profile. Rating = {STARTING_RATING} + total pts. "
+        "Updates automatically when scores change."
+    )
 
 
 def render_player_profile(leaderboard: pd.DataFrame, scores: pd.DataFrame) -> None:
-    player = st.selectbox("Player", leaderboard["player_name"].tolist())
+    player = st.selectbox("Player", leaderboard["player_name"].tolist(), key="profile_player")
     games = scores[scores["player_name"] == player].copy()
     games["game_no"] = range(1, len(games) + 1)
     games["rating"] = STARTING_RATING + games["pts"].cumsum()
@@ -201,10 +222,14 @@ def render_game_log(scores: pd.DataFrame) -> None:
     for (match_id, play_date, table_no), game in shown.groupby(["match_id", "play_date", "table_no"], dropna=False, sort=False):
         table_label = f"Table {int(table_no)}" if pd.notna(table_no) else "No table"
         st.markdown(f"**{play_date:%b %d, %Y} · {table_label}** · game #{match_id}")
+        table_key = f"game_{match_id}"
         st.dataframe(
             game[["placement", "player_name", "score", "raw_pts", "pts"]],
             hide_index=True,
             use_container_width=True,
+            key=table_key,
+            on_select=partial(open_profile, table_key, game["player_name"].tolist()),
+            selection_mode="single-cell",
             column_config={
                 "placement": "Place",
                 "player_name": "Player",
@@ -319,7 +344,7 @@ if has_games:
     m2.metric("Games played", scores["match_id"].nunique())
     m3.metric("Last game", scores["play_date"].max().strftime("%b %d, %Y"))
 
-tab_board, tab_player, tab_games, tab_entry = st.tabs(["Leaderboard", "Player profile", "Game log", "Enter a game"])
+tab_board, tab_player, tab_games, tab_entry = st.tabs(TABS, key="tab", on_change="rerun")
 
 for tab, render in [
     (tab_board, lambda: render_leaderboard(leaderboard, scores)),
