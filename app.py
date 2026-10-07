@@ -23,7 +23,7 @@ DEFAULT_SCORE = 25_000
 SERIES_COLOR = "#2e7d32"      # dark green: readable on the mint background
 RSVP_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeCv4KW3y6vIam2rvqq5lIffssjNf-K9bqbNiqJV-ANOCn4Zg/viewform"
 
-st.set_page_config(page_title="Mahjong Club", page_icon="🀄", layout="wide")
+st.set_page_config(page_title="UM Mahjong League", page_icon="🀄", layout="wide")
 
 conn = st.connection("sql")   # read-only club_reader login, from .streamlit/secrets.toml
 
@@ -337,7 +337,7 @@ with st.sidebar:
         st.iframe(f"{RSVP_FORM_URL}?embedded=true", height=700, alt="Mahjong Thursdays RSVP form")
 
 title_col, refresh_col = st.columns([5, 1])
-title_col.title("🀄 Mahjong Club")
+title_col.title("🀄 UM Mahjong League")
 if refresh_col.button("Refresh data", use_container_width=True):
     refresh_data()
     st.rerun()
