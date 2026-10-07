@@ -21,6 +21,7 @@ STARTING_RATING = 1000
 GAME_TOTAL = 100_000
 DEFAULT_SCORE = 25_000
 SERIES_COLOR = "#2e7d32"      # dark green: readable on the mint background
+RSVP_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeCv4KW3y6vIam2rvqq5lIffssjNf-K9bqbNiqJV-ANOCn4Zg/viewform"
 
 st.set_page_config(page_title="Mahjong Club", page_icon="🀄", layout="wide")
 
@@ -327,6 +328,13 @@ def render_game_entry() -> None:
 
 
 # ---------------------------------------------------------------- page
+
+with st.sidebar:
+    st.header("🗓️ Mahjong Thursdays")
+    st.write("Coming to the next session? Let us know which days you'll attend.")
+    st.link_button("RSVP (opens Google Form)", RSVP_FORM_URL, type="primary", use_container_width=True)
+    with st.expander("Or fill it in here"):
+        st.iframe(f"{RSVP_FORM_URL}?embedded=true", height=700, alt="Mahjong Thursdays RSVP form")
 
 title_col, refresh_col = st.columns([5, 1])
 title_col.title("🀄 Mahjong Club")
