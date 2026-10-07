@@ -1,0 +1,33 @@
+name: Keep dashboard awake
+
+on:
+  schedule:
+    - cron: "17 */4 * * *"    # every 4 hours (Streamlit sleeps apps after ~12h without visitors)
+  workflow_dispatch:           # "Run workflow" button in the Actions tab
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install headless browser
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Visit the dashboard
+        run: python scripts/keep_awake.py
+
+      - name: Save screenshot if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keep-awake-failure
+          path: keep_awake_failure.png
+          if-no-files-found: ignore
