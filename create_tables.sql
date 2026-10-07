@@ -15,7 +15,7 @@ CREATE TABLE players (
 
     PRIMARY KEY (player_id),
     CHECK (trim(player_name) <> '')
-);
+); 
 
 
 CREATE TABLE matches (
