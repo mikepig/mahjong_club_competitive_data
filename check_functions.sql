@@ -1,6 +1,8 @@
 CREATE OR REPLACE FUNCTION check_match_complete()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER        -- deferred: runs at COMMIT as the caller (e.g. club_writer, who can't read tables)
+SET search_path = public
 AS $$
 DECLARE
     v_match_id BIGINT;

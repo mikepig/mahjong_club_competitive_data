@@ -27,6 +27,7 @@ Run in the Supabase SQL Editor, in this order:
 | `security.sql` | Row Level Security: public can read, nobody can write through the API |
 | `readonly_role.sql` | `club_reader` read-only login (role part once; policy part after every rebuild) |
 | `insert_tables.sql` | `record_game()` and `add_player()` functions, plus the `club_writer` login that can only call them |
+| `edit_functions.sql` | `update_game()` and `delete_game()` for fixing or removing a recorded game (`club_writer` can call them) |
 | `seed_data.sql` | The first two games from the original spreadsheet |
 | `create_views.sql` | `match_scores` (placement, pts per game) and `leaderboard` |
 

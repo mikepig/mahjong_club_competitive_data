@@ -19,7 +19,6 @@ from sqlalchemy import text
 REFRESH_SECONDS = 60          # how long query results are cached before re-reading the database
 STARTING_RATING = 1000
 GAME_TOTAL = 100_000
-DEFAULT_SCORE = 25_000
 SERIES_COLOR = "#2e7d32"      # dark green: readable on the mint background
 RSVP_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeCv4KW3y6vIam2rvqq5lIffssjNf-K9bqbNiqJV-ANOCn4Zg/viewform"
 
@@ -243,8 +242,10 @@ def render_game_log(scores: pd.DataFrame) -> None:
 
 def render_admin_login() -> None:
     st.write("Game entry is for club admins.")
-    password = st.text_input("Admin password", type="password")
-    if st.button("Unlock"):
+    with st.form("admin_login"):
+        password = st.text_input("Admin password", type="password")
+        unlocked = st.form_submit_button("Unlock")      # Enter in the field also submits
+    if unlocked:
         if hmac.compare_digest(password.encode(), str(st.secrets["admin_password"]).encode()):
             st.session_state.admin_ok = True
             st.rerun()
@@ -252,76 +253,213 @@ def render_admin_login() -> None:
             st.error("Wrong password.")
 
 
-def render_game_entry() -> None:
-    if flash := st.session_state.pop("flash", None):
-        st.success(flash)
+def parse_score(text: str) -> int | None:
+    """'39,600' or ' 39600 ' -> 39600; anything that isn't a whole number -> None."""
+    try:
+        return int(text.replace(",", "").replace(" ", ""))
+    except ValueError:
+        return None
 
-    names = load_player_names()
-    form_id = st.session_state.setdefault("form_id", 0)   # bumping this resets every input below
 
-    date_col, table_col = st.columns(2)
-    play_date = date_col.date_input("Date", value=date.today(), key=f"date_{form_id}")
-    table_no = table_col.number_input("Table", min_value=1, step=1, value=1, key=f"table_{form_id}")
+def resolve_player(text: str, names: list[str]) -> tuple[str | None, str | None]:
+    """Match typed text to a member: case-insensitive, and a unique start of a name is enough.
 
-    players, scores = [], []
-    for i in range(4):
-        name_col, score_col = st.columns([2, 1])
-        players.append(name_col.selectbox(
-            f"Player {i + 1}", names, index=None, placeholder="Choose a player", key=f"player{i}_{form_id}",
-        ))
-        scores.append(int(score_col.number_input(
-            "Final score", value=DEFAULT_SCORE, step=100, format="%d", key=f"score{i}_{form_id}",
-        )))
+    'joe' -> 'Joe', 'sog' -> 'Sogabe Sensei'. Returns (name, None) or (None, error message).
+    """
+    typed = text.strip().lower()
+    if not typed:
+        return None, "missing"
+    for candidates in (
+        [n for n in names if n.lower() == typed],
+        [n for n in names if n.lower().startswith(typed)],
+        [n for n in names if typed in n.lower()],
+    ):
+        if len(candidates) == 1:
+            return candidates[0], None
+        if len(candidates) > 1:
+            return None, f'"{text.strip()}" could be {", ".join(candidates)}. Type more of the name.'
+    return None, f'"{text.strip()}" isn\'t a member yet. Add them under "Add player" first.'
 
-    # Same rules the database enforces, checked here first so mistakes show before submitting.
+
+def game_problems(players: list, scores: list) -> list[str]:
+    """Same rules the database enforces, checked first so the message is friendlier."""
     problems = []
-    if None in players:
-        problems.append("Choose all 4 players.")
-    elif len(set(players)) < 4:
+    if None not in players and len(set(players)) < 4:
         problems.append("A player is listed more than once.")
-    total = sum(scores)
-    if total != GAME_TOTAL:
-        problems.append(f"Scores add up to {total:,}, which is {total - GAME_TOTAL:+,} off {GAME_TOTAL:,}.")
-    if any(s % 100 for s in scores):
-        problems.append("Scores must be multiples of 100.")
+    if None in scores:
+        problems.append("Enter all 4 scores as whole numbers, e.g. 39600.")
+    else:
+        total = sum(scores)
+        if total != GAME_TOTAL:
+            problems.append(f"Scores add up to {total:,}, which is {total - GAME_TOTAL:+,} off {GAME_TOTAL:,}.")
+        if any(s % 100 for s in scores):
+            problems.append("Scores must be multiples of 100.")
+    return problems
 
-    st.markdown(f"**Total: {total:,}** {'✅' if total == GAME_TOTAL else '❌'}")
+
+def game_form(form_key: str, names: list[str], *, play_date: date, table_no: int,
+              players: list, scores: list, submit_label: str):
+    """Date, table and 4 name/score rows inside one st.form.
+
+    Nothing reruns while typing: type a name, Tab, type a score, Tab ... then submit once.
+    Returns (play_date, table_no, players, scores) if submitted and valid, otherwise None.
+    """
+    with st.form(form_key):
+        date_col, table_col = st.columns(2)
+        new_date = date_col.date_input("Date", value=play_date, key=f"{form_key}_date")
+        new_table = table_col.number_input("Table", min_value=1, step=1, value=table_no, key=f"{form_key}_table")
+
+        typed_names, new_scores = [], []
+        for i in range(4):
+            name_col, score_col = st.columns([2, 1])
+            typed_names.append(name_col.text_input(
+                f"Player {i + 1}", value=players[i] or "", placeholder="Name (first letters are enough)",
+                key=f"{form_key}_player{i}",
+            ))
+            new_scores.append(parse_score(score_col.text_input(
+                f"Final score {i + 1}", value="" if scores[i] is None else str(scores[i]),
+                placeholder="e.g. 39600", key=f"{form_key}_score{i}",
+            )))
+
+        st.caption("Members: " + ", ".join(names))
+        submitted = st.form_submit_button(submit_label, type="primary")
+
+    if not submitted:
+        return None
+
+    new_players, problems = [], []
+    for i, typed in enumerate(typed_names):
+        name, error = resolve_player(typed, names)
+        new_players.append(name)
+        if error == "missing":
+            problems.append(f"Player {i + 1} is empty.")
+        elif error:
+            problems.append(f"Player {i + 1}: {error}")
+    problems += game_problems(new_players, new_scores)     # report everything at once
+
     for problem in problems:
-        st.warning(problem)
+        st.error(problem)
+    return None if problems else (new_date, int(new_table), new_players, new_scores)
 
-    if None not in players and len(set(players)) == 4:
-        preview = pd.DataFrame({"Player": players, "Final score": scores})
-        preview["Place"] = preview["Final score"].rank(method="min", ascending=False).astype(int)
-        st.caption("Placement preview (pts are calculated by the database after saving)")
-        st.dataframe(preview.sort_values("Place")[["Place", "Player", "Final score"]], hide_index=True)
 
-    if st.button("Save game", type="primary", disabled=bool(problems)):
+def standings_text(players: list[str], scores: list[int]) -> str:
+    order = sorted(zip(scores, players), reverse=True)
+    return ", ".join(f"{name} {score:,}" for score, name in order)
+
+
+def finish_write(message: str) -> None:
+    """After a successful write: remember the message, reset the forms, reload data."""
+    st.session_state.flash = message
+    st.session_state.form_id += 1
+    refresh_data()
+    st.rerun()
+
+
+def render_new_game(names: list[str], form_id: int) -> None:
+    result = game_form(
+        f"new_game_{form_id}", names, play_date=date.today(), table_no=1,
+        players=[None] * 4, scores=[None] * 4, submit_label="Save game",
+    )
+    if result is None:
+        return
+    play_date, table_no, players, scores = result
+    try:
+        match_id = call_db_function(
+            "SELECT record_game(CAST(:play_date AS date), :table_no, CAST(:players AS text[]), CAST(:scores AS integer[]))",
+            {"play_date": play_date, "table_no": table_no, "players": players, "scores": scores},
+        )
+    except Exception as exc:
+        st.error(f"Not saved: {db_error_message(exc)}")
+    else:
+        finish_write(f"Saved game #{match_id} ({play_date:%b %d}, table {table_no}): {standings_text(players, scores)}.")
+
+
+def render_edit_game(names: list[str], form_id: int, scores_df: pd.DataFrame) -> None:
+    if scores_df.empty:
+        st.info("No games recorded yet.")
+        return
+
+    games = scores_df.sort_values(["play_date", "match_id", "placement"], ascending=[False, False, True])
+    labels = {
+        match_id: f"#{match_id} · {g['play_date'].iat[0]:%b %d, %Y} · table {g['table_no'].iat[0]} · "
+                  + ", ".join(g["player_name"])
+        for match_id, g in games.groupby("match_id", sort=False)
+    }
+    match_id = st.selectbox(
+        "Game to edit (newest first)", list(labels), index=0, format_func=labels.get,
+        key=f"edit_pick_{form_id}",
+    )
+    if match_id is None:
+        return
+
+    game = games[games["match_id"] == match_id]
+    result = game_form(
+        f"edit_{match_id}_{form_id}", names,
+        play_date=game["play_date"].iat[0], table_no=int(game["table_no"].iat[0] or 1),
+        players=game["player_name"].tolist(), scores=game["score"].astype(int).tolist(),
+        submit_label="Save changes",
+    )
+    if result is not None:
+        play_date, table_no, players, scores = result
         try:
-            match_id = call_db_function(
-                "SELECT record_game(CAST(:play_date AS date), :table_no, CAST(:players AS text[]), CAST(:scores AS integer[]))",
-                {"play_date": play_date, "table_no": int(table_no), "players": players, "scores": scores},
+            call_db_function(
+                "SELECT update_game(:match_id, CAST(:play_date AS date), :table_no, "
+                "CAST(:players AS text[]), CAST(:scores AS integer[]))",
+                {"match_id": int(match_id), "play_date": play_date, "table_no": table_no,
+                 "players": players, "scores": scores},
             )
         except Exception as exc:
             st.error(f"Not saved: {db_error_message(exc)}")
         else:
-            st.session_state.flash = f"Saved game #{match_id} ({play_date:%b %d}, table {int(table_no)})."
-            st.session_state.form_id += 1
-            refresh_data()
-            st.rerun()
+            finish_write(f"Updated game #{match_id}: {standings_text(players, scores)}.")
 
-    with st.expander("Add a new player"):
-        new_name = st.text_input("Name", key=f"new_player_{form_id}")
-        if st.button("Add player", disabled=not new_name.strip()):
+    with st.expander("Delete this game"):
+        confirmed = st.checkbox(f"Yes, permanently delete game #{match_id}", key=f"confirm_delete_{match_id}_{form_id}")
+        if st.button("Delete game", disabled=not confirmed, key=f"delete_{match_id}_{form_id}"):
             try:
-                call_db_function("SELECT add_player(:name)", {"name": new_name})
+                call_db_function("SELECT delete_game(:match_id)", {"match_id": int(match_id)})
             except Exception as exc:
-                st.error(f"Not added: {db_error_message(exc)}")
+                st.error(f"Not deleted: {db_error_message(exc)}")
             else:
-                st.session_state.flash = f"Added {new_name.strip()}. They're now in the player lists."
-                st.session_state.form_id += 1
-                refresh_data()
-                st.rerun()
+                finish_write(f"Deleted game #{match_id}.")
 
+
+def render_add_player(form_id: int) -> None:
+    with st.form(f"add_player_{form_id}"):
+        new_name = st.text_input("New player's name")
+        added = st.form_submit_button("Add player", type="primary")    # Enter in the field also submits
+    if not added:
+        return
+    if not new_name.strip():
+        st.error("Type a name first.")
+        return
+    try:
+        call_db_function("SELECT add_player(:name)", {"name": new_name})
+    except Exception as exc:
+        st.error(f"Not added: {db_error_message(exc)}")
+    else:
+        finish_write(f"Added {new_name.strip()}. They're now in the player lists.")
+
+
+def render_game_entry(scores_df: pd.DataFrame) -> None:
+    if flash := st.session_state.pop("flash", None):
+        st.success(flash)
+
+    names = load_player_names()
+    form_id = st.session_state.setdefault("form_id", 0)   # bumping this resets the forms
+
+    mode = st.segmented_control(
+        "What do you want to do?", ["New game", "Edit a game", "Add player"],
+        default="New game", required=True, key="entry_mode",
+    )
+    if mode == "New game":
+        render_new_game(names, form_id)
+    elif mode == "Edit a game":
+        render_edit_game(names, form_id, scores_df)
+    else:
+        render_add_player(form_id)
+
+    st.divider()
     if st.button("Lock entry"):
         st.session_state.admin_ok = False
         st.rerun()
@@ -369,6 +507,6 @@ with tab_entry:
     if not entry_configured():
         st.info("Game entry isn't set up yet: the app's secrets need `admin_password` and a `[connections.writer]` section.")
     elif st.session_state.get("admin_ok"):
-        render_game_entry()
+        render_game_entry(scores)
     else:
         render_admin_login()
